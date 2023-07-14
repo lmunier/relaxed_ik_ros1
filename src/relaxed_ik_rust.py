@@ -13,7 +13,7 @@ import yaml
 
 from relaxed_ik_ros1.msg import EEPoseGoals, JointAngles
 from robot import Robot
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64, Float64MultiArray
 from timeit import default_timer as timer
 from urdf_load import urdf_load
 from visualization_msgs.msg import InteractiveMarkerFeedback, InteractiveMarkerUpdate
@@ -79,11 +79,14 @@ def main(args=None):
     robot_name = info_file_name.split('_')[0]
     objective_mode = robot_info['objective_mode']
     print("\nRelaxedIK initialized!\nRobot: {}\nObjective mode: {}\n".format(robot_name, objective_mode))
-    
+
     # Publishers
-    angles_pub = rospy.Publisher('/relaxed_ik/joint_angle_solutions', JointAngles, queue_size=10)
     time_pub = rospy.Publisher('/relaxed_ik/current_time', Float64, queue_size=10)
-    
+    if rospy.get_param("sim_viewer") == "gazebo":
+        angles_pub = rospy.Publisher('/iiwa/PositionController/command', Float64MultiArray, queue_size=10)
+    else:
+        angles_pub = rospy.Publisher('/relaxed_ik/joint_angle_solutions', JointAngles, queue_size=10)
+
     # Subscribers
     rospy.Subscriber('/simple_marker/feedback', InteractiveMarkerFeedback, marker_feedback_cb)
     rospy.Subscriber('/simple_marker/update', InteractiveMarkerUpdate, marker_update_cb)
@@ -95,8 +98,8 @@ def main(args=None):
     # Wait for the start signal
     print("Waiting for ROS param /simulation_time to be set as go...")
     initialized = False
-    while not initialized: 
-        try: 
+    while not initialized:
+        try:
             param = rospy.get_param("simulation_time")
             initialized = param == "go"
         except KeyError:
@@ -104,7 +107,7 @@ def main(args=None):
     print("ROS param /simulation_time is set up!\n")
 
     # If the input_device is keyboard
-    if robot_info['input_device'] == 'keyboard': 
+    if robot_info['input_device'] == 'keyboard':
         global eepg
         rospy.Subscriber('/relaxed_ik/ee_pose_goals', EEPoseGoals, eePoseGoals_cb)
 
@@ -143,16 +146,24 @@ def main(args=None):
             # print("Speed: {}".format(speed))
             speed_list.append(speed)
 
-            ja = JointAngles()
-            ja.header = header
             ja_str = "["
+            joint_solutions = []
             for i in range(xopt.length):
-                ja.angles.data.append(xopt.data[i])
+                joint_solutions.append(xopt.data[i])
+
                 ja_str += str(xopt.data[i])
                 if i == xopt.length - 1:
                     ja_str += "]"
-                else: 
+                else:
                     ja_str += ", "
+
+            if rospy.get_param("sim_viewer") == "gazebo":
+                ja = Float64MultiArray()
+                ja.data = joint_solutions
+            else:
+                ja = JointAngles()
+                ja.angles.data = joint_solutions
+                ja.header = header
 
             angles_pub.publish(ja)
             # print(ja_str)
@@ -203,7 +214,7 @@ def main(args=None):
         prev_sol = starting_config
         pos_goal_tolerance = 0.01
         quat_goal_tolerance = 0.01
-        
+
         rate = rospy.Rate(3000)
         while not rospy.is_shutdown():
             if cur_time >= max_time: break
@@ -211,7 +222,7 @@ def main(args=None):
             cur_time_msg = Float64()
             cur_time_msg.data = cur_time
             time_pub.publish(cur_time_msg)
-            
+
             # Get the pose goal
             (time, p) = utils.linear_interpolate_waypoints(waypoints, goal_idx)
             pos_arr = (ctypes.c_double * 3)()
@@ -223,13 +234,22 @@ def main(args=None):
             quat_arr[1] = p.orientation.y
             quat_arr[2] = p.orientation.z
             quat_arr[3] = p.orientation.w
-            
+
             xopt = lib.solve(pos_arr, len(pos_arr), quat_arr, len(quat_arr))
-            
+
             # Publish the joint angle solution
-            ja = JointAngles()
+            joint_solutions = []
             for i in range(xopt.length):
-                ja.angles.data.append(xopt.data[i])
+                joint_solutions.append(xopt.data[i])
+
+            if rospy.get_param("sim_viewer") == "gazebo":
+                ja = Float64MultiArray()
+                ja.data = joint_solutions
+            else:
+                ja = JointAngles()
+                ja.angles.data = joint_solutions
+                ja.header = header
+
             angles_pub.publish(ja)
 
             ja_stream.append(ja.angles.data)
@@ -244,7 +264,7 @@ def main(args=None):
             dis = numpy.linalg.norm(numpy.array(trans_cur) - numpy.array(final_trans_goal))
             angle_between = numpy.linalg.norm(T.quaternion_disp(rot_cur, final_rot_goal)) * 2.0
             # print(dis, angle_between)
-            
+
             if dis < pos_goal_tolerance and (angle_between < quat_goal_tolerance or objective_mode == 'ECA3') \
                 and cur_time > len(waypoints) * delta_time:
                 print("The path is finished successfully!")
@@ -258,12 +278,12 @@ def main(args=None):
                 stuck_count += 1
             else:
                 stuck_count = 0
-            
+
             if stuck_count > 20 / step and cur_time > len(waypoints) * delta_time:
                 print("relaxed IK is stucked in local minimum!")
                 break
 
             rate.sleep()
-        
+
 if __name__ == '__main__':
     main()
