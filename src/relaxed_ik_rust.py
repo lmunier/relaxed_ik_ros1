@@ -82,10 +82,9 @@ def main(args=None):
 
     # Publishers
     time_pub = rospy.Publisher('/relaxed_ik/current_time', Float64, queue_size=10)
-    if rospy.get_param("sim_viewer") == "gazebo":
-        angles_pub = rospy.Publisher('/iiwa/PositionController/command', Float64MultiArray, queue_size=10)
-    else:
-        angles_pub = rospy.Publisher('/relaxed_ik/joint_angle_solutions', JointAngles, queue_size=10)
+
+    pos_controller_topic = rospy.get_param("/position_controller_command") 
+    angles_pub = rospy.Publisher(pos_controller_topic, Float64MultiArray, queue_size=10)
 
     # Subscribers
     rospy.Subscriber('/simple_marker/feedback', InteractiveMarkerFeedback, marker_feedback_cb)
@@ -124,7 +123,6 @@ def main(args=None):
             cur_time += delta_time * step
 
             pose_goals = eepg.ee_poses
-            header = eepg.header
             pos_arr = (ctypes.c_double * (3 * len(pose_goals)))()
             quat_arr = (ctypes.c_double * (4 * len(pose_goals)))()
 
@@ -157,14 +155,8 @@ def main(args=None):
                 else:
                     ja_str += ", "
 
-            if rospy.get_param("sim_viewer") == "gazebo":
-                ja = Float64MultiArray()
-                ja.data = joint_solutions
-            else:
-                ja = JointAngles()
-                ja.angles.data = joint_solutions
-                ja.header = header
-
+            ja = Float64MultiArray()
+            ja.data = joint_solutions
             angles_pub.publish(ja)
             # print(ja_str)
 
@@ -242,14 +234,8 @@ def main(args=None):
             for i in range(xopt.length):
                 joint_solutions.append(xopt.data[i])
 
-            if rospy.get_param("sim_viewer") == "gazebo":
-                ja = Float64MultiArray()
-                ja.data = joint_solutions
-            else:
-                ja = JointAngles()
-                ja.angles.data = joint_solutions
-                ja.header = header
-
+            ja = Float64MultiArray()
+            ja.data = joint_solutions
             angles_pub.publish(ja)
 
             ja_stream.append(ja.angles.data)

@@ -21,8 +21,8 @@ import yaml
 from std_msgs.msg import ColorRGBA, Float64
 from geometry_msgs.msg import Point, Pose
 from interactive_markers.interactive_marker_server import *
-from relaxed_ik_ros1.msg import EEPoseGoals, JointAngles
-from sensor_msgs.msg import JointState, PointCloud2, PointField
+from relaxed_ik_ros1.msg import EEPoseGoals
+from sensor_msgs.msg import JointState, PointCloud2, PointField, Float64MultiArray
 from timeit import default_timer as timer
 from visualization_msgs.msg import *
 
@@ -314,7 +314,9 @@ def main():
     urdf_string = urdf_file.read()
     rospy.set_param('robot_description', urdf_string)
     js_pub = rospy.Publisher('joint_states',JointState,queue_size=5)
-    rospy.Subscriber('/relaxed_ik/joint_angle_solutions',JointAngles,ja_solution_cb)
+
+    pos_controller_topic = rospy.get_param("/position_controller_command") 
+    rospy.Subscriber(pos_controller_topic, Float64MultiArray, ja_solution_cb)
     tf_pub = tf.TransformBroadcaster()
 
     rospy.sleep(0.5)
